@@ -72,7 +72,7 @@ def get_optimizer(loss_op, cfg):
     else:
         raise ValueError('unknown optimizer {}'.format(cfg.optimizer))
 
-    if cfg['use_tpu']:
+    if os.environ.get('use_tpu', False):
         optimizer = tf.contrib.tpu.CrossShardOptimizer(optimizer)
 
     train_op = slim.learning.create_train_op(loss_op, optimizer)
@@ -101,7 +101,7 @@ def train(config_yaml,displayiters,saveiters,maxiters,max_to_keep=5):
     restorer = tf.train.Saver(variables_to_restore)
     saver = tf.train.Saver(max_to_keep=max_to_keep) # selects how many snapshots are stored, see https://github.com/AlexEMG/DeepLabCut/issues/8#issuecomment-387404835
 
-    if cfg['use_tpu']:
+    if os.environ.get('use_tpu', False):
         from tensorflow.contrib import tpu
         from tensorflow.contrib.cluster_resolver import TPUClusterResolver
         from tensorflow.contrib.tpu.python.tpu import tpu_function
@@ -171,7 +171,7 @@ def train(config_yaml,displayiters,saveiters,maxiters,max_to_keep=5):
             model_name = cfg.snapshot_prefix
             saver.save(sess, model_name, global_step=it)
 
-    if cfg['use_tpu']:
+    if os.environ.get('use_tpu', False):
         sess.run(tpu.shutdown_system())
 
     lrf.close()
