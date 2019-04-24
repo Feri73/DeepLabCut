@@ -102,13 +102,15 @@ def train(config_yaml,displayiters,saveiters,maxiters,max_to_keep=5):
     saver = tf.train.Saver(max_to_keep=max_to_keep) # selects how many snapshots are stored, see https://github.com/AlexEMG/DeepLabCut/issues/8#issuecomment-387404835
 
     if os.environ.get('use_tpu', False):
+        print('setting up tpu ...')
+
         from tensorflow.contrib import tpu
         from tensorflow.contrib.cluster_resolver import TPUClusterResolver
         from tensorflow.contrib.tpu.python.tpu import tpu_function
 
         tpu_function.get_tpu_context().set_number_of_shards(8)
 
-        tpu_cluster = TPUClusterResolver(tpu=['my_tpu']).get_master()
+        tpu_cluster = TPUClusterResolver(tpu=[os.environ['tpu_name']]).get_master()
         sess = tf.Session(tpu_cluster)
         sess.run(tpu.initialize_system())
     else:
