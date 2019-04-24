@@ -71,6 +71,10 @@ def get_optimizer(loss_op, cfg):
         optimizer = tf.train.AdamOptimizer(cfg.adam_lr)
     else:
         raise ValueError('unknown optimizer {}'.format(cfg.optimizer))
+
+    if cfg['use_tpu']:
+        optimizer = tf.contrib.tpu.CrossShardOptimizer(optimizer)
+
     train_op = slim.learning.create_train_op(loss_op, optimizer)
 
     return learning_rate, train_op
@@ -79,10 +83,10 @@ def train(config_yaml,displayiters,saveiters,maxiters,max_to_keep=5):
     start_path=os.getcwd()
     os.chdir(str(Path(config_yaml).parents[0])) #switch to folder of config_yaml (for logging)
     setup_logging()
-    
+
     cfg = load_config(config_yaml)
     cfg['batch_size']=1 #in case this was edited for analysis.
-    
+
     dataset = create_dataset(cfg)
     batch_spec = get_batch_spec(cfg)
     batch, enqueue_op, placeholders = setup_preloading(batch_spec)
@@ -97,7 +101,18 @@ def train(config_yaml,displayiters,saveiters,maxiters,max_to_keep=5):
     restorer = tf.train.Saver(variables_to_restore)
     saver = tf.train.Saver(max_to_keep=max_to_keep) # selects how many snapshots are stored, see https://github.com/AlexEMG/DeepLabCut/issues/8#issuecomment-387404835
 
-    sess = tf.Session()
+    if cfg['use_tpu']:
+        from tensorflow.contrib import tpu
+        from tensorflow.contrib.cluster_resolver import TPUClusterResolver
+        from tensorflow.contrib.tpu.python.tpu import tpu_function
+
+        tpu_function.get_tpu_context().set_number_of_shards(8)
+
+        tpu_cluster = TPUClusterResolver(tpu=['my_tpu']).get_master()
+        sess = tf.Session(tpu_cluster)
+        sess.run(tpu.initialize_system())
+    else:
+        sess = tf.Session()
     coord, thread = start_preloading(sess, enqueue_op, dataset, placeholders)
     train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
     learning_rate, train_op = get_optimizer(total_loss, cfg)
@@ -113,20 +128,20 @@ def train(config_yaml,displayiters,saveiters,maxiters,max_to_keep=5):
         max_iter = min(int(cfg.multi_step[-1][1]),int(maxiters))
         #display_iters = max(1,int(displayiters))
         print("Max_iters overwritten as",max_iter)
-    
+
     if displayiters==None:
         display_iters = max(1,int(cfg.display_iters))
     else:
         display_iters = max(1,int(displayiters))
         print("Display_iters overwritten as",display_iters)
-    
+
     if saveiters==None:
         save_iters=max(1,int(cfg.save_iters))
-        
+
     else:
         save_iters=max(1,int(saveiters))
         print("Save_iters overwritten as",save_iters)
-        
+
     cum_loss = 0.0
     lr_gen = LearningRate(cfg)
 
@@ -155,6 +170,9 @@ def train(config_yaml,displayiters,saveiters,maxiters,max_to_keep=5):
         if (it % save_iters == 0 and it != 0) or it == max_iter:
             model_name = cfg.snapshot_prefix
             saver.save(sess, model_name, global_step=it)
+
+    if cfg['use_tpu']:
+        sess.run(tpu.shutdown_system())
 
     lrf.close()
     sess.close()
